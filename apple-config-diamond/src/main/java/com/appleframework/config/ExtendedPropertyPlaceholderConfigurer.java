@@ -2,6 +2,8 @@ package com.appleframework.config;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Executor;
 
@@ -23,8 +25,10 @@ public class ExtendedPropertyPlaceholderConfigurer extends PropertyPlaceholderCo
 	
 	private Properties props;
 	
+	private String eventListenerClass;
+	
 	private boolean loadRemote = true;
-
+	
 	public boolean isLoadRemote() {
 		return loadRemote;
 	}
@@ -33,9 +37,13 @@ public class ExtendedPropertyPlaceholderConfigurer extends PropertyPlaceholderCo
 		this.loadRemote = loadRemote;
 	}
 
+	public void setEventListenerClass(String eventListenerClass) {
+		this.eventListenerClass = eventListenerClass;
+	}
+
 	@Override
 	protected void processProperties(ConfigurableListableBeanFactory beanFactory, Properties props) throws BeansException {
-		if(!loadRemote) {
+		if(!isLoadRemote()) {
 			super.processProperties(beanFactory, props);
 			this.props = props;
 			PropertyConfigurer.load(props);
@@ -47,7 +55,6 @@ public class ExtendedPropertyPlaceholderConfigurer extends PropertyPlaceholderCo
 		
 		logger.warn("配置项：group=" + group);
 		logger.warn("配置项：dataId=" + dataId);
-		
 		
 		if(!StringUtils.isEmpty(group) && !StringUtils.isEmpty(dataId)) {
 			if(!StringUtils.isEmpty(EnvConfigurer.env)){
@@ -61,7 +68,11 @@ public class ExtendedPropertyPlaceholderConfigurer extends PropertyPlaceholderCo
 				}
 				logger.warn("配置项：env=" + env);
 			}
-			DiamondManager manager = new DefaultDiamondManager(group, dataId, new ManagerListener() {
+			
+			List<ManagerListener> managerListeners = new ArrayList<>();
+			
+			ManagerListener springMamagerListener = new ManagerListener() {
+		        
 				public Executor getExecutor() {
 					return null;
 				}
@@ -69,9 +80,28 @@ public class ExtendedPropertyPlaceholderConfigurer extends PropertyPlaceholderCo
 					// 客户端处理数据的逻辑
 					logger.warn("已改动的配置：\n"+configInfo);
 					StringReader reader = new StringReader(configInfo);
-					PropertyConfigurer.load(reader);
+					try {
+						PropertyConfigurer.props.load(reader);
+					} catch (IOException e) {
+						logger.error(e);
+					}
 				}
-			});
+			};
+			managerListeners.add(springMamagerListener);
+			
+			//定义事件源 
+			try {
+				if(!StringUtils.isNullOrEmpty(eventListenerClass)) {
+					//定义并向事件源中注册事件监听器  
+					Class<?> clazz = Class.forName(eventListenerClass);
+					ManagerListener managerListener = (ManagerListener)clazz.newInstance();
+					managerListeners.add(managerListener);
+				}
+			} catch (Exception e) {
+				logger.error(e);
+			}
+	        
+			DiamondManager manager = new DefaultDiamondManager(group, dataId, managerListeners);
 			
 			try {
 				String configInfo = manager.getAvailableConfigureInfomation(30000);
